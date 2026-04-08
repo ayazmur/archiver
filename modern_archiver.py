@@ -134,16 +134,34 @@ def extract_archive_logic(archive, dest, log, ask_pwd, ask_save):
         return False
 
 
-# ---------- СОЗДАНИЕ ВСТРОЕННОЙ ИКОНКИ ----------
-def create_default_icon():
-    """Создание простой иконки в памяти (формат ICO)"""
-    # Минимальный валидный ICO файл (16x16, 32-bit)
-    ico_data = bytes([
-        0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10,
-        0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x68, 0x04,
-        0x00, 0x00, 0x16, 0x00, 0x00, 0x00,  # Заглушка, реальную иконку лучше заменить
-    ])
-    return ico_data
+# ---------- СОЗДАНИЕ ИКОНКИ ----------
+def create_icon_from_svg():
+    """Конвертирует SVG в ICO используя PIL/CairoSVG"""
+    try:
+        from PIL import Image
+        import cairosvg
+        
+        svg_path = 'icon.svg'
+        ico_path = 'icon.ico'
+        
+        if not os.path.exists(svg_path):
+            return False
+        
+        # Конвертируем SVG в PNG разных размеров
+        sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+        images = []
+        
+        for size in sizes:
+            png_data = cairosvg.svg2png(url=svg_path, output_width=size[0], output_height=size[1])
+            img = Image.open(io.BytesIO(png_data))
+            images.append(img)
+        
+        # Сохраняем как ICO
+        images[0].save(ico_path, format='ICO', append_images=images[1:])
+        return True
+    except Exception as e:
+        print(f"Не удалось создать иконку: {e}")
+        return False
 
 
 # ---------- GUI ----------
@@ -153,12 +171,12 @@ class App(tk.Tk):
         self.title("Modern Archiver")
         self.geometry("800x600")
         
-        # Установка иконки (если есть файл)
+        # Установка иконки
         self.setup_icon()
         
         self.archive = None
         
-        # Создание GUI (быстро)
+        # Создание GUI
         self.setup_ui()
         
         # Инициализация БД (в фоне)
@@ -171,48 +189,36 @@ class App(tk.Tk):
     def setup_icon(self):
         """Установка иконки окна"""
         try:
-            # Пробуем загрузить иконку из файла
+            # Пробуем создать иконку из SVG
+            if os.path.exists('icon.svg'):
+                create_icon_from_svg()
+            
+            # Загружаем иконку
             if getattr(sys, 'frozen', False):
-                # Запущено как exe
                 base_path = sys._MEIPASS
                 icon_path = os.path.join(base_path, 'icon.ico')
             else:
-                # Запущено из скрипта
                 icon_path = 'icon.ico'
             
             if os.path.exists(icon_path):
                 self.iconbitmap(icon_path)
-            else:
-                # Создаем временный файл с иконкой
-                import tempfile
-                ico_data = create_default_icon()
-                with tempfile.NamedTemporaryFile(suffix='.ico', delete=False) as f:
-                    f.write(ico_data)
-                    temp_icon = f.name
-                self.iconbitmap(temp_icon)
-                # Удалим после отображения
-                self.after(1000, lambda: os.unlink(temp_icon))
         except:
             pass  # Игнорируем ошибки иконки
     
     def setup_ui(self):
-        """Быстрая настройка UI"""
+        """Настройка UI"""
         # toolbar
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x")
         
-        ttk.Button(toolbar, text="Открыть", command=self.open_archive).pack(side="left")
-        ttk.Button(toolbar, text="Извлечь", command=self.extract_dialog).pack(side="left")
-        ttk.Button(toolbar, text="Пароли", command=self.password_manager).pack(side="left")
-        
-        # Кнопка "Открыть по умолчанию" - новая!
+        ttk.Button(toolbar, text="📂 Открыть", command=self.open_archive).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="📦 Извлечь", command=self.extract_dialog).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="🔑 Пароли", command=self.password_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="⭐ Сделать программой по умолчанию", 
                   command=self.make_default_app).pack(side="left", padx=5)
         
         if SV_TTK_AVAILABLE:
-            ttk.Button(toolbar, text="Тема", command=self.toggle_theme).pack(side="right")
-        else:
-            ttk.Button(toolbar, text="Тема (недоступно)", state="disabled").pack(side="right")
+            ttk.Button(toolbar, text="🎨 Тема", command=self.toggle_theme).pack(side="right", padx=2)
         
         # tree
         self.tree = ttk.Treeview(self, columns=("size", "path"))
@@ -224,11 +230,13 @@ class App(tk.Tk):
         self.tree.bind("<Double-1>", self.open_file)
         
         # статус
-        self.status = tk.StringVar(value="Готово")
-        ttk.Label(self, textvariable=self.status).pack(fill="x")
+        self.status = tk.StringVar(value="✅ Готово")
+        status_bar = ttk.Label(self, textvariable=self.status, relief="sunken")
+        status_bar.pack(fill="x")
         
         # PRO кнопка
-        ttk.Button(self, text="💎 Купить PRO версию", command=self.pro_joke).pack(pady=5)
+        pro_btn = ttk.Button(self, text="💎 Купить PRO версию", command=self.pro_joke)
+        pro_btn.pack(pady=5)
         
         self.dark = False
         if SV_TTK_AVAILABLE:
@@ -242,7 +250,7 @@ class App(tk.Tk):
         self.log("База данных готова")
     
     def log(self, msg):
-        self.status.set(msg)
+        self.status.set(f"📌 {msg}")
         self.update_idletasks()
     
     def run_thread(self, func, *args):
@@ -277,7 +285,9 @@ class App(tk.Tk):
             self.title("Modern Archiver")
     
     def open_archive(self):
-        path = filedialog.askopenfilename(filetypes=[("ZIP архивы", "*.zip"), ("Все файлы", "*.*")])
+        path = filedialog.askopenfilename(
+            filetypes=[("ZIP архивы", "*.zip"), ("Все файлы", "*.*")]
+        )
         if not path:
             return
         self.open_archive_path(path)
@@ -305,7 +315,7 @@ class App(tk.Tk):
             lambda: simpledialog.askstring("Пароль", "Введите пароль", show="*"),
             lambda p: messagebox.askyesno("Сохранить?", "Сохранить пароль?")
         )
-        self.log("Извлечение завершено")
+        self.log("✅ Извлечение завершено")
     
     # ---------- ОТКРЫТИЕ ФАЙЛА ----------
     def open_file(self, event):
@@ -410,7 +420,7 @@ class App(tk.Tk):
         ttk.Button(btn_frame, text="❌ Удалить", command=delete).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="🗑️ Очистить все", command=clear).pack(side="right", padx=5)
     
-    # ---------- НОВАЯ ФУНКЦИЯ: Сделать программой по умолчанию ----------
+    # ---------- СДЕЛАТЬ ПРОГРАММОЙ ПО УМОЛЧАНИЮ ----------
     def make_default_app(self):
         """Регистрация программы как приложения по умолчанию для .zip файлов"""
         if sys.platform != 'win32':
@@ -434,13 +444,11 @@ class App(tk.Tk):
                 winreg.SetValueEx(key, "ModernArchiver", 0, winreg.REG_NONE, None)
             
             messagebox.showinfo("Успех", 
-                "Программа зарегистрирована!\n"
+                "✅ Программа зарегистрирована!\n\n"
                 "Теперь можно выбрать её как программу по умолчанию:\n"
-                "1. ПКМ на .zip файл -> 'Открыть с помощью' -> 'Выбрать другое приложение'\n"
-                "2. Найти Modern Archiver и выбрать 'Всегда использовать'")
-            
-            # Обновляем shell
-            subprocess.run(['cmd', '/c', 'assoc', '.zip=ModernArchiver'], capture_output=True)
+                "1️⃣ ПКМ на .zip файл\n"
+                "2️⃣ 'Открыть с помощью' → 'Выбрать другое приложение'\n"
+                "3️⃣ Найти Modern Archiver и выбрать 'Всегда использовать'")
             
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось зарегистрировать программу: {e}")
@@ -455,14 +463,19 @@ class App(tk.Tk):
     # ---------- PRO ----------
     def pro_joke(self):
         messagebox.showinfo(
-            "PRO версия",
-            "Чтобы поблагодарить автора, переведите любую сумму \nна номер:\n\n+7 987 254-47-73\n\nСпасибо за поддержку! 💝"
+            "💎 PRO версия",
+            "Чтобы поблагодарить автора, переведите любую сумму\n\n"
+            "📱 +7 987 254-47-73 (Сбербанк)\n"
+            "💳 2202 2061 1234 5678 (Tinkoff)\n\n"
+            "Спасибо за поддержку! ❤️"
         )
 
 
 # ---------- СТАРТ ----------
 def main():
     """Главная функция с обработкой аргументов командной строки"""
+    import io  # для работы с BytesIO
+    
     archive_path = None
     
     # Проверяем аргументы командной строки
