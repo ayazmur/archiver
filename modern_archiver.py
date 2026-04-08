@@ -1,4 +1,3 @@
-# modern_archiver.py
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 import os
@@ -6,37 +5,34 @@ import sys
 import threading
 import zipfile
 import sqlite3
-from datetime import datetime
+import tempfile
+import subprocess
+import time
 
-# Импортируем и применяем современную тему
 import sv_ttk
-
-# --- БЭКЕНД: Логика остаётся почти той же ---
-# (Переносим сюда все функции из прошлого файла: init_db, add_password_to_db и т.д.)
-# ... [Вставьте сюда все функции из раздела "БЭКЕНД" прошлого ответа] ...
-# Я скопирую их сюда для полноты, чтобы файл был цельным.
 
 DB_NAME = "passwords.db"
 
 
+# ---------- БАЗА ----------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS passwords (id INTEGER PRIMARY KEY, password TEXT NOT NULL UNIQUE)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS passwords (id INTEGER PRIMARY KEY, password TEXT UNIQUE)")
     conn.commit()
     conn.close()
 
 
 def add_password_to_db(password):
-    if not password: return "Ошибка: Пустой пароль."
+    if not password:
+        return
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute("INSERT INTO passwords (password) VALUES (?)", (password,))
         conn.commit()
-        return f"Пароль '{password}' добавлен."
-    except sqlite3.IntegrityError:
-        return f"Пароль '{password}' уже есть в базе."
+    except:
+        pass
     finally:
         conn.close()
 
@@ -44,216 +40,239 @@ def add_password_to_db(password):
 def get_passwords_from_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT password FROM passwords ORDER BY id")
-    passwords = [row[0] for row in cursor.fetchall()]
+    cursor.execute("SELECT password FROM passwords")
+    data = [row[0] for row in cursor.fetchall()]
     conn.close()
-    return passwords
+    return data
 
 
-# ... и остальные функции бэкенда, если они есть.
+def delete_password(pwd):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM passwords WHERE password=?", (pwd,))
+    conn.commit()
+    conn.close()
 
-def extract_archive_logic(archive_name, dest_path, log_callback, ask_password_callback, ask_save_password_callback):
+
+def clear_passwords():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM passwords")
+    conn.commit()
+    conn.close()
+
+
+# ---------- ЛОГИКА ----------
+def extract_archive_logic(archive, dest, log, ask_pwd, ask_save):
     try:
-        log_callback(f"Начинаю распаковку '{os.path.basename(archive_name)}'...")
-        with zipfile.ZipFile(archive_name, 'r') as zf:
+        with zipfile.ZipFile(archive, 'r') as zf:
             try:
-                zf.extractall(path=dest_path)
-                log_callback("Архив успешно распакован (без пароля).")
+                zf.extractall(dest)
+                log("Распаковано без пароля")
                 return True
-            except RuntimeError as e:
-                if "password required" not in str(e).lower():
-                    raise e
+            except RuntimeError:
+                pass
 
-            log_callback("Архив защищен паролем. Пробую пароли из базы...")
-            passwords_to_try = get_passwords_from_db()
-            for pwd in passwords_to_try:
+            # пробуем базу
+            for pwd in get_passwords_from_db():
                 try:
-                    zf.extractall(path=dest_path, pwd=pwd.encode('utf-8'))
-                    log_callback(f"УСПЕХ! Распаковано с паролем из базы: '{pwd}'")
+                    zf.extractall(dest, pwd=pwd.encode())
+                    log(f"Пароль найден: {pwd}")
                     return True
-                except (RuntimeError, zipfile.BadZipFile):
+                except:
                     continue
 
-            log_callback("Пароли из базы не подошли.")
             while True:
-                manual_pwd = ask_password_callback()
-                if manual_pwd is None:  # Пользователь нажал "Отмена"
-                    log_callback("Распаковка отменена пользователем.")
+                pwd = ask_pwd()
+                if not pwd:
                     return False
                 try:
-                    zf.extractall(path=dest_path, pwd=manual_pwd.encode('utf-8'))
-                    log_callback("Успешно распаковано с введенным паролем.")
-                    if ask_save_password_callback(manual_pwd):
-                        log_callback(add_password_to_db(manual_pwd))
+                    zf.extractall(dest, pwd=pwd.encode())
+                    if ask_save(pwd):
+                        add_password_to_db(pwd)
                     return True
-                except (RuntimeError, zipfile.BadZipFile):
-                    if not messagebox.askretrycancel("Неверный пароль", "Пароль не подошел. Попробовать еще раз?"):
-                        log_callback("Распаковка отменена.")
+                except:
+                    if not messagebox.askretrycancel("Ошибка", "Неверный пароль"):
                         return False
+
     except Exception as e:
-        log_callback(f"Ошибка при распаковке: {e}")
+        log(str(e))
         return False
 
 
-# --- /БЭКЕНД ---
-
-# --- ФРОНТЕНД: Новый GUI ---
-
-class ArchiverApp(tk.Tk):
+# ---------- GUI ----------
+class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Modern Archiver")
         self.geometry("800x600")
 
-        self.current_archive = None
+        self.archive = None
 
-        # --- Toolbar ---
-        toolbar = ttk.Frame(self, padding=5)
-        toolbar.pack(side="top", fill="x")
+        # toolbar
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x")
 
-        ttk.Button(toolbar, text="Открыть", command=self.open_archive).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Извлечь", command=self.show_extract_dialog).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Добавить", command=self.show_add_dialog).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="Открыть", command=self.open_archive).pack(side="left")
+        ttk.Button(toolbar, text="Извлечь", command=self.extract_dialog).pack(side="left")
+        ttk.Button(toolbar, text="Пароли", command=self.password_manager).pack(side="left")
+        ttk.Button(toolbar, text="Тема", command=self.toggle_theme).pack(side="right")
 
-        # --- File Browser (Treeview) ---
-        tree_frame = ttk.Frame(self)
-        tree_frame.pack(expand=True, fill="both", padx=5, pady=5)
-
-        self.tree = ttk.Treeview(tree_frame, columns=("size", "modified", "path"), show="headings")
-        self.tree.heading("size", text="Размер")
-        self.tree.heading("modified", text="Дата изменения")
-        self.tree.heading("path", text="Путь")
-
-        self.tree.column("size", width=100, anchor="e")
-        self.tree.column("modified", width=150, anchor="w")
-        self.tree.column("path", width=400, anchor="w")
-
-        # Добавляем Treeview в Treeview (костыль для отображения заголовка основного столбца)
+        # tree
+        self.tree = ttk.Treeview(self, columns=("size", "path"))
         self.tree.heading("#0", text="Имя")
-        self.tree.column("#0", width=200, anchor="w")
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.heading("size", text="Размер")
+        self.tree.heading("path", text="Путь")
+        self.tree.pack(expand=True, fill="both")
 
-        tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=tree_scrollbar.set)
-        tree_scrollbar.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", self.open_file)
 
-        # --- Status Bar ---
-        self.status_var = tk.StringVar(value="Готово")
-        status_bar = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=5)
-        status_bar.pack(side="bottom", fill="x")
+        # статус
+        self.status = tk.StringVar(value="Готово")
+        ttk.Label(self, textvariable=self.status).pack(fill="x")
 
+        # ПРО кнопка 😄
+        ttk.Button(self, text="💎 Купить PRO версию", command=self.pro_joke).pack(pady=5)
+
+        self.dark = False
         init_db()
 
-        # Обработка файла при запуске
-        if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
-            self.open_archive(filepath=sys.argv[1])
+    # ---------- UI ----------
+    def log(self, msg):
+        self.status.set(msg)
+        self.update()
 
-    def log(self, message):
-        self.status_var.set(message)
-        self.update_idletasks()  # Обновляем GUI немедленно
+    def run_thread(self, func, *args):
+        threading.Thread(target=func, args=args, daemon=True).start()
 
-    def run_in_thread(self, target, *args):
-        threading.Thread(target=target, args=args, daemon=True).start()
-
-    def open_archive(self, filepath=None):
-        if not filepath:
-            filepath = filedialog.askopenfilename(filetypes=[("ZIP archives", "*.zip")])
-
-        if not filepath:
+    # ---------- АРХИВ ----------
+    def open_archive(self):
+        path = filedialog.askopenfilename(filetypes=[("ZIP", "*.zip")])
+        if not path:
             return
 
-        self.current_archive = filepath
-        self.title(f"Modern Archiver - {os.path.basename(filepath)}")
-        self.tree.delete(*self.tree.get_children())  # Очистить список
+        self.archive = path
+        self.tree.delete(*self.tree.get_children())
 
-        try:
-            with zipfile.ZipFile(filepath, 'r') as zf:
-                for info in zf.infolist():
-                    size = f"{info.file_size / 1024:.2f} KB"
-                    modified = datetime(*info.date_time).strftime("%Y-%m-%d %H:%M:%S")
-                    # Отображаем имя файла в первой колонке (#0)
-                    self.tree.insert("", "end", text=os.path.basename(info.filename),
-                                     values=(size, modified, info.filename))
-            self.log(f"Открыт архив: {os.path.basename(filepath)}")
-        except Exception as e:
-            self.log(f"Ошибка открытия архива: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось открыть архив: {e}")
+        with zipfile.ZipFile(path, 'r') as zf:
+            for f in zf.infolist():
+                size = f"{f.file_size/1024:.1f} KB"
+                self.tree.insert("", "end", text=os.path.basename(f.filename),
+                                 values=(size, f.filename))
 
-    def show_extract_dialog(self):
-        if not self.current_archive:
-            messagebox.showwarning("Внимание", "Сначала откройте архив.")
+        self.log("Архив открыт")
+
+    def extract_dialog(self):
+        if not self.archive:
             return
 
-        dest_path = filedialog.askdirectory(title="Выберите папку для извлечения")
-        if not dest_path:
+        dest = filedialog.askdirectory()
+        if not dest:
             return
 
-        def on_extract_done(success):
-            if success:
-                messagebox.showinfo("Успех", f"Файлы успешно извлечены в '{dest_path}'")
-            # Если не success, то сообщения об ошибках уже были показаны
+        self.run_thread(self.extract_archive, dest)
 
-        self.run_in_thread(self.extract_archive, self.current_archive, dest_path, on_extract_done)
-
-    def extract_archive(self, archive_path, dest_path, callback):
-        # Эта функция запускается в потоке
-        success = extract_archive_logic(
-            archive_path, dest_path,
-            log_callback=self.log,
-            ask_password_callback=lambda: simpledialog.askstring("Пароль", "Введите пароль:", parent=self, show='*'),
-            ask_save_password_callback=lambda pwd: messagebox.askyesno("Сохранить пароль?",
-                                                                       f"Сохранить пароль '{pwd}' в базу?", parent=self)
+    def extract_archive(self, dest):
+        extract_archive_logic(
+            self.archive,
+            dest,
+            self.log,
+            lambda: simpledialog.askstring("Пароль", "Введите пароль", show="*"),
+            lambda p: messagebox.askyesno("Сохранить?", "Сохранить пароль?")
         )
-        self.after(0, callback, success)  # Вызываем колбэк в главном потоке
 
-    def show_add_dialog(self):
-        # Просто как пример - вызываем стандартный диалог
-        filepath = filedialog.askopenfilename(title="Выберите файл для добавления в новый архив")
-        if not filepath:
+    # ---------- ОТКРЫТИЕ ФАЙЛА ----------
+    def open_file(self, event):
+        if not self.archive:
             return
 
-        archive_path = filedialog.asksaveasfilename(defaultextension=".zip", filetypes=[("ZIP-архивы", "*.zip")])
-        if not archive_path:
+        item = self.tree.selection()
+        if not item:
             return
 
-        password = simpledialog.askstring("Пароль", "Введите пароль (оставьте пустым, если не нужен):", show='*')
+        path = self.tree.item(item[0])["values"][1]
+        self.run_thread(self._open_temp, path)
 
-        self.log(f"Добавление {os.path.basename(filepath)} в {os.path.basename(archive_path)}...")
-
-        # Запускаем в потоке
-        self.run_in_thread(self.add_to_archive, filepath, archive_path, password)
-
-    def add_to_archive(self, source_path, archive_path, password):
+    def _open_temp(self, path):
         try:
-            with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                if password:
-                    zf.setpassword(password.encode('utf-8'))
+            with zipfile.ZipFile(self.archive, 'r') as zf:
+                temp_dir = tempfile.mkdtemp()
+                try:
+                    zf.extract(path, temp_dir)
+                except:
+                    for pwd in get_passwords_from_db():
+                        try:
+                            zf.extract(path, temp_dir, pwd=pwd.encode())
+                            break
+                        except:
+                            continue
 
-                zf.write(source_path, os.path.basename(source_path))
+                file_path = os.path.join(temp_dir, path)
 
-            self.log(f"Файл успешно добавлен в архив '{os.path.basename(archive_path)}'")
-            if password:
-                add_password_to_db(password)
+                subprocess.Popen(file_path, shell=True)
+
+                time.sleep(60)
+
+                try:
+                    os.remove(file_path)
+                    os.rmdir(temp_dir)
+                except:
+                    pass
+
         except Exception as e:
-            self.log(f"Ошибка при добавлении в архив: {e}")
+            self.log(str(e))
+
+    # ---------- ПАРОЛИ ----------
+    def password_manager(self):
+        win = tk.Toplevel(self)
+        win.title("Пароли")
+
+        listbox = tk.Listbox(win)
+        listbox.pack(fill="both", expand=True)
+
+        def refresh():
+            listbox.delete(0, tk.END)
+            for p in get_passwords_from_db():
+                listbox.insert(tk.END, p)
+
+        refresh()
+
+        def add():
+            p = simpledialog.askstring("Пароль", "Введите", parent=win)
+            if p:
+                add_password_to_db(p)
+                refresh()
+
+        def delete():
+            sel = listbox.curselection()
+            if sel:
+                delete_password(listbox.get(sel[0]))
+                refresh()
+
+        def clear():
+            if messagebox.askyesno("Очистить", "Все пароли?"):
+                clear_passwords()
+                refresh()
+
+        ttk.Button(win, text="Добавить", command=add).pack(side="left")
+        ttk.Button(win, text="Удалить", command=delete).pack(side="left")
+        ttk.Button(win, text="Очистить", command=clear).pack(side="right")
+
+    # ---------- ТЕМА ----------
+    def toggle_theme(self):
+        self.dark = not self.dark
+        sv_ttk.set_theme("dark" if self.dark else "light")
+
+    # ---------- ШУТКА 😄 ----------
+    def pro_joke(self):
+        messagebox.showinfo(
+            "PRO версия",
+            "Чтобы поблагодарить аффтора, переведите любую сумму \nна номер:\n\n89872544773\n\nСпасибо"
+        )
 
 
+# ---------- СТАРТ ----------
 if __name__ == "__main__":
-    app = ArchiverApp()
-
-    # Устанавливаем светлую или тёмную тему в зависимости от настроек системы
-    # Для Windows 10/11 это должно работать
-    try:
-        if app.tk.call("tk", "windowingsystem") == "win32":
-            import winreg
-
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                 r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
-            if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] == 0:
-                sv_ttk.set_theme("dark")
-            else:
-                sv_ttk.set_theme("light")
-    except Exception:
-        sv_ttk.set_theme("light")  # Тема по умолчанию, если что-то пошло не так
-
+    app = App()
+    sv_ttk.set_theme("light")
     app.mainloop()
