@@ -3,18 +3,26 @@ name: Build Multi-Platform
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
 
-  build-windows:
-    runs-on: windows-latest
-    permissions:
-      contents: write
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -23,89 +31,52 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE
+      # ---------- BUILD ----------
+      - name: Build app
         run: |
-          pyinstaller --onefile --windowed ^
-            --name ModernArchiver ^
-            --icon=icon.ico ^
-            --collect-all PyQt6 ^
-            app.py
+          pyinstaller --onefile --windowed --name ModernArchiver --collect-all PyQt6 app.py
 
-      # Installer
+      # ---------- WINDOWS INSTALLER ----------
       - name: Install Inno Setup
+        if: matrix.os == 'windows-latest'
         run: choco install innosetup -y
 
       - name: Build Installer
+        if: matrix.os == 'windows-latest'
+        run: iscc installer.iss
+
+      # ---------- LINUX APPIMAGE ----------
+      - name: Build AppImage
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          iscc installer.iss
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          prerelease: true
-          files: |
-            dist/ModernArchiver.exe
-            Output/ModernArchiverSetup.exe
-
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-linux:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - run: |
-          pyinstaller --onefile app.py
-
-      - run: |
           mkdir AppDir
           cp dist/ModernArchiver AppDir/
-
-      - run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/latest/download/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-          ./appimagetool-x86_64.AppImage AppDir
+          ./appimagetool-x86_64.AppImage AppDir ModernArchiver.AppImage
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          files: ModernArchiver*.AppImage
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-macos:
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - run: |
-          pyinstaller --windowed app.py
-
-      - run: |
+      # ---------- MACOS DMG ----------
+      - name: Build DMG
+        if: matrix.os == 'macos-latest'
+        run: |
           hdiutil create ModernArchiver.dmg -srcfolder dist/
 
-      - uses: softprops/action-gh-release@v2
+      # ---------- VERSION ----------
+      - name: Set version
+        run: echo "VERSION=build-${{ github.run_number }}" >> $GITHUB_ENV
+
+      # ---------- RELEASE ----------
+      - name: Upload Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          files: ModernArchiver.dmg
+          tag_name: ${{ env.VERSION }}
+          name: Build ${{ env.VERSION }}
+          prerelease: true
+          files: |
+            dist/ModernArchiver*
+            ModernArchiver*.AppImage
+            ModernArchiver.dmg
+            Output/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
