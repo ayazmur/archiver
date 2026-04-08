@@ -7,6 +7,12 @@ from infrastructure.zip_repository import ZipRepository
 from infrastructure.config_repository import ConfigRepository
 from ui.main_window import MainWindow
 
+import sys
+
+APP_VERSION = "1.0.0"
+
+if getattr(sys, 'frozen', False):
+    APP_VERSION = "installed"
 
 def main():
     app = QApplication(sys.argv)

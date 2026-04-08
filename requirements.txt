@@ -3,3 +3,4 @@ sv_ttk
 pillow
 cairosvg
 PyQt6
+requests
