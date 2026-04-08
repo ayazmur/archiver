@@ -244,7 +244,7 @@ if __name__ == "__main__":
     # Устанавливаем светлую или тёмную тему в зависимости от настроек системы
     # Для Windows 10/11 это должно работать
     try:
-        if tk.Tk().call("tk", "windowingsystem") == "win32":
+        if app.tk.call("tk", "windowingsystem") == "win32":
             import winreg
 
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
