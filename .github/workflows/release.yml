@@ -32,13 +32,13 @@ jobs:
           pip install pyinstaller
 
       - name: Build executable with PyInstaller
-        run: pyinstaller --onefile --name "archiver" archiver.py
+        run: pyinstaller --onefile --name "gui_archiver" gui_archiver.py
 
       - name: Upload EXE to Release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/archiver.exe
-          asset_name: archiver-windows-x64.exe
+          file: dist/gui_archiver.exe
+          asset_name: gui_archiver-windows-x64.exe
           tag: ${{ github.ref }}
           overwrite: true
