@@ -14,6 +14,16 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            output_name: ModernArchiver.exe
+            installer_ext: exe
+          - os: ubuntu-latest
+            output_name: ModernArchiver
+            appimage_name: ModernArchiver.AppImage
+          - os: macos-latest
+            output_name: ModernArchiver
+            dmg_name: ModernArchiver.dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -32,51 +42,131 @@ jobs:
           pip install pyinstaller
 
       # ---------- BUILD ----------
-      - name: Build app
+      - name: Build app with PyInstaller
         run: |
           pyinstaller --onefile --windowed --name ModernArchiver --collect-all PyQt6 app.py
+
+      - name: List dist directory
+        run: ls -la dist/
 
       # ---------- WINDOWS INSTALLER ----------
       - name: Install Inno Setup
         if: matrix.os == 'windows-latest'
         run: choco install innosetup -y
 
-      - name: Build Installer
+      - name: Create Inno Setup script
+        if: matrix.os == 'windows-latest'
+        run: |
+          cat > installer.iss << EOF
+          [Setup]
+          AppName=Modern Archiver
+          AppVersion=1.0.0
+          DefaultDirName={pf}\Modern Archiver
+          DefaultGroupName=Modern Archiver
+          UninstallDisplayIcon={app}\ModernArchiver.exe
+          Compression=lzma2
+          SolidCompression=yes
+          OutputDir=Output
+          OutputBaseFilename=ModernArchiver_Setup
+          
+          [Files]
+          Source: "dist\ModernArchiver.exe"; DestDir: "{app}"
+          
+          [Icons]
+          Name: "{group}\Modern Archiver"; Filename: "{app}\ModernArchiver.exe"
+          Name: "{group}\Uninstall Modern Archiver"; Filename: "{uninstallexe}"
+          EOF
+
+      - name: Build Windows Installer
         if: matrix.os == 'windows-latest'
         run: iscc installer.iss
+
+      - name: List Output directory
+        if: matrix.os == 'windows-latest'
+        run: ls -la Output/
 
       # ---------- LINUX APPIMAGE ----------
       - name: Build AppImage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          mkdir AppDir
-          cp dist/ModernArchiver AppDir/
-          wget -q https://github.com/AppImage/AppImageKit/releases/latest/download/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          ./appimagetool-x86_64.AppImage AppDir ModernArchiver.AppImage
+          mkdir -p AppDir/usr/bin
+          cp dist/ModernArchiver AppDir/usr/bin/
+          
+          # Создаем .desktop файл
+          cat > AppDir/modern-archiver.desktop << EOF
+          [Desktop Entry]
+          Name=Modern Archiver
+          Exec=ModernArchiver
+          Icon=archive
+          Type=Application
+          Categories=Utility;
+          EOF
+          
+          # Скачиваем appimagetool
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          chmod +x appimagetool
+          
+          # Создаем AppImage
+          ARCH=x86_64 ./appimagetool AppDir ModernArchiver.AppImage
+
+      - name: List AppImage
+        if: matrix.os == 'ubuntu-latest'
+        run: ls -la *.AppImage
 
       # ---------- MACOS DMG ----------
-      - name: Build DMG
+      - name: Create DMG on macOS
         if: matrix.os == 'macos-latest'
         run: |
-          hdiutil create ModernArchiver.dmg -srcfolder dist/
+          # Создаем временную папку для DMG
+          mkdir -p dmg_folder
+          cp -r dist/ModernArchiver dmg_folder/
+          cp -r dist/ModernArchiver.app dmg_folder/ 2>/dev/null || true
+          
+          # Создаем DMG
+          hdiutil create -volname "Modern Archiver" -srcfolder dmg_folder -ov -format UDZO ModernArchiver.dmg
 
-      # ---------- VERSION ----------
-      - name: Set version
-        run: echo "VERSION=build-${{ github.run_number }}" >> $GITHUB_ENV
+      - name: List DMG
+        if: matrix.os == 'macos-latest'
+        run: ls -la *.dmg
 
-      # ---------- RELEASE ----------
-      - name: Upload Release
-        if: github.event_name == 'push'
+      # ---------- UPLOAD ARTIFACTS ----------
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: |
+            dist/ModernArchiver*
+            *.AppImage
+            *.dmg
+            Output/*.exe
+          if-no-files-found: warn
+
+  # Отдельная джоба для создания релиза
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: Build ${{ env.VERSION }}
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
           prerelease: true
           files: |
-            dist/ModernArchiver*
-            ModernArchiver*.AppImage
-            ModernArchiver.dmg
-            Output/*.exe
+            artifacts/build-windows-latest/Output/*.exe
+            artifacts/build-windows-latest/dist/ModernArchiver.exe
+            artifacts/build-ubuntu-latest/*.AppImage
+            artifacts/build-macos-latest/*.dmg
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
