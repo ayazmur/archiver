@@ -14,16 +14,6 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-        include:
-          - os: windows-latest
-            output_name: ModernArchiver.exe
-            installer_ext: exe
-          - os: ubuntu-latest
-            output_name: ModernArchiver
-            appimage_name: ModernArchiver.AppImage
-          - os: macos-latest
-            output_name: ModernArchiver
-            dmg_name: ModernArchiver.dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -41,10 +31,117 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # ---------- BUILD ----------
-      - name: Build app with PyInstaller
+      # ---------- BUILD с оптимизацией ----------
+      - name: Build app (Windows)
+        if: matrix.os == 'windows-latest'
         run: |
-          pyinstaller --onefile --windowed --name ModernArchiver --collect-all PyQt6 app.py
+          pyinstaller --onefile --windowed --name ModernArchiver `
+            --exclude-module PyQt6.QAxContainer `
+            --exclude-module PyQt6.QtBluetooth `
+            --exclude-module PyQt6.QtDBus `
+            --exclude-module PyQt6.QtDesigner `
+            --exclude-module PyQt6.QtHelp `
+            --exclude-module PyQt6.QtMultimedia `
+            --exclude-module PyQt6.QtMultimediaWidgets `
+            --exclude-module PyQt6.QtNfc `
+            --exclude-module PyQt6.QtOpenGL `
+            --exclude-module PyQt6.QtOpenGLWidgets `
+            --exclude-module PyQt6.QtPdf `
+            --exclude-module PyQt6.QtPdfWidgets `
+            --exclude-module PyQt6.QtPositioning `
+            --exclude-module PyQt6.QtPrintSupport `
+            --exclude-module PyQt6.QtQml `
+            --exclude-module PyQt6.QtQuick `
+            --exclude-module PyQt6.QtQuick3D `
+            --exclude-module PyQt6.QtQuickWidgets `
+            --exclude-module PyQt6.QtRemoteObjects `
+            --exclude-module PyQt6.QtSensors `
+            --exclude-module PyQt6.QtSerialPort `
+            --exclude-module PyQt6.QtSpatialAudio `
+            --exclude-module PyQt6.QtSql `
+            --exclude-module PyQt6.QtStateMachine `
+            --exclude-module PyQt6.QtSvg `
+            --exclude-module PyQt6.QtSvgWidgets `
+            --exclude-module PyQt6.QtTest `
+            --exclude-module PyQt6.QtTextToSpeech `
+            --exclude-module PyQt6.QtWebChannel `
+            --exclude-module PyQt6.QtWebSockets `
+            --exclude-module PyQt6.QtXml `
+            app.py
+
+      - name: Build app (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pyinstaller --onefile --windowed --name ModernArchiver \
+            --exclude-module PyQt6.QAxContainer \
+            --exclude-module PyQt6.QtBluetooth \
+            --exclude-module PyQt6.QtDBus \
+            --exclude-module PyQt6.QtDesigner \
+            --exclude-module PyQt6.QtHelp \
+            --exclude-module PyQt6.QtMultimedia \
+            --exclude-module PyQt6.QtMultimediaWidgets \
+            --exclude-module PyQt6.QtNfc \
+            --exclude-module PyQt6.QtOpenGL \
+            --exclude-module PyQt6.QtOpenGLWidgets \
+            --exclude-module PyQt6.QtPdf \
+            --exclude-module PyQt6.QtPdfWidgets \
+            --exclude-module PyQt6.QtPositioning \
+            --exclude-module PyQt6.QtPrintSupport \
+            --exclude-module PyQt6.QtQml \
+            --exclude-module PyQt6.QtQuick \
+            --exclude-module PyQt6.QtQuick3D \
+            --exclude-module PyQt6.QtQuickWidgets \
+            --exclude-module PyQt6.QtRemoteObjects \
+            --exclude-module PyQt6.QtSensors \
+            --exclude-module PyQt6.QtSerialPort \
+            --exclude-module PyQt6.QtSpatialAudio \
+            --exclude-module PyQt6.QtSql \
+            --exclude-module PyQt6.QtStateMachine \
+            --exclude-module PyQt6.QtSvg \
+            --exclude-module PyQt6.QtSvgWidgets \
+            --exclude-module PyQt6.QtTest \
+            --exclude-module PyQt6.QtTextToSpeech \
+            --exclude-module PyQt6.QtWebChannel \
+            --exclude-module PyQt6.QtWebSockets \
+            --exclude-module PyQt6.QtXml \
+            app.py
+
+      - name: Build app (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pyinstaller --onefile --windowed --name ModernArchiver \
+            --exclude-module PyQt6.QAxContainer \
+            --exclude-module PyQt6.QtBluetooth \
+            --exclude-module PyQt6.QtDBus \
+            --exclude-module PyQt6.QtDesigner \
+            --exclude-module PyQt6.QtHelp \
+            --exclude-module PyQt6.QtMultimedia \
+            --exclude-module PyQt6.QtMultimediaWidgets \
+            --exclude-module PyQt6.QtNfc \
+            --exclude-module PyQt6.QtOpenGL \
+            --exclude-module PyQt6.QtOpenGLWidgets \
+            --exclude-module PyQt6.QtPdf \
+            --exclude-module PyQt6.QtPdfWidgets \
+            --exclude-module PyQt6.QtPositioning \
+            --exclude-module PyQt6.QtPrintSupport \
+            --exclude-module PyQt6.QtQml \
+            --exclude-module PyQt6.QtQuick \
+            --exclude-module PyQt6.QtQuick3D \
+            --exclude-module PyQt6.QtQuickWidgets \
+            --exclude-module PyQt6.QtRemoteObjects \
+            --exclude-module PyQt6.QtSensors \
+            --exclude-module PyQt6.QtSerialPort \
+            --exclude-module PyQt6.QtSpatialAudio \
+            --exclude-module PyQt6.QtSql \
+            --exclude-module PyQt6.QtStateMachine \
+            --exclude-module PyQt6.QtSvg \
+            --exclude-module PyQt6.QtSvgWidgets \
+            --exclude-module PyQt6.QtTest \
+            --exclude-module PyQt6.QtTextToSpeech \
+            --exclude-module PyQt6.QtWebChannel \
+            --exclude-module PyQt6.QtWebSockets \
+            --exclude-module PyQt6.QtXml \
+            app.py
 
       - name: List dist directory
         run: ls -la dist/
@@ -56,8 +153,9 @@ jobs:
 
       - name: Create Inno Setup script
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          cat > installer.iss << EOF
+          @"
           [Setup]
           AppName=Modern Archiver
           AppVersion=1.0.0
@@ -75,15 +173,11 @@ jobs:
           [Icons]
           Name: "{group}\Modern Archiver"; Filename: "{app}\ModernArchiver.exe"
           Name: "{group}\Uninstall Modern Archiver"; Filename: "{uninstallexe}"
-          EOF
+          "@ | Out-File -FilePath installer.iss -Encoding UTF8
 
       - name: Build Windows Installer
         if: matrix.os == 'windows-latest'
         run: iscc installer.iss
-
-      - name: List Output directory
-        if: matrix.os == 'windows-latest'
-        run: ls -la Output/
 
       # ---------- LINUX APPIMAGE ----------
       - name: Build AppImage
@@ -92,7 +186,6 @@ jobs:
           mkdir -p AppDir/usr/bin
           cp dist/ModernArchiver AppDir/usr/bin/
           
-          # Создаем .desktop файл
           cat > AppDir/modern-archiver.desktop << EOF
           [Desktop Entry]
           Name=Modern Archiver
@@ -102,32 +195,17 @@ jobs:
           Categories=Utility;
           EOF
           
-          # Скачиваем appimagetool
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
-          
-          # Создаем AppImage
           ARCH=x86_64 ./appimagetool AppDir ModernArchiver.AppImage
-
-      - name: List AppImage
-        if: matrix.os == 'ubuntu-latest'
-        run: ls -la *.AppImage
 
       # ---------- MACOS DMG ----------
       - name: Create DMG on macOS
         if: matrix.os == 'macos-latest'
         run: |
-          # Создаем временную папку для DMG
           mkdir -p dmg_folder
-          cp -r dist/ModernArchiver dmg_folder/
-          cp -r dist/ModernArchiver.app dmg_folder/ 2>/dev/null || true
-          
-          # Создаем DMG
+          cp dist/ModernArchiver dmg_folder/
           hdiutil create -volname "Modern Archiver" -srcfolder dmg_folder -ov -format UDZO ModernArchiver.dmg
-
-      - name: List DMG
-        if: matrix.os == 'macos-latest'
-        run: ls -la *.dmg
 
       # ---------- UPLOAD ARTIFACTS ----------
       - name: Upload artifacts
@@ -153,9 +231,6 @@ jobs:
         with:
           path: artifacts
 
-      - name: List artifacts
-        run: ls -la artifacts/
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -163,10 +238,9 @@ jobs:
           name: Build ${{ github.run_number }}
           prerelease: true
           files: |
-            artifacts/build-windows-latest/Output/*.exe
-            artifacts/build-windows-latest/dist/ModernArchiver.exe
-            artifacts/build-ubuntu-latest/*.AppImage
-            artifacts/build-macos-latest/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.dmg
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
