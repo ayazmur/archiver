@@ -4,3 +4,6 @@ pillow
 cairosvg
 PyQt6
 requests
+py7zr
+rarfile
+keyring

@@ -6,15 +6,16 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QThreadPool, QRunnable, pyqtSignal, QObject
 
 from ui.dialogs.password_dialog import PasswordDialog
+from ui.dialogs.password_manager_dialog import PasswordManagerDialog
 from core.update_service import UpdateService
 
 import webbrowser
 import os
 
 
-# ---------- Worker для потоков ----------
+# --- Worker для фоновых задач ---
 class WorkerSignals(QObject):
-    finished = pyqtSignal(bool)
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
 
@@ -32,16 +33,17 @@ class Worker(QRunnable):
             self.signals.error.emit(str(e))
 
 
-# ---------- Main Window ----------
+# --- Main Window ---
 class MainWindow(QMainWindow):
-    def __init__(self, archive_service):
+    # ИСПРАВЛЕНО: добавлена поддержка двух сервисов в аргументах
+    def __init__(self, archive_service, password_service):
         super().__init__()
 
         self.archive_service = archive_service
+        self.password_service = password_service  # Сохраняем сервис паролей
+
         self.archive_path = None
-
         self.threadpool = QThreadPool()
-
         self.update_service = UpdateService("YOUR_USERNAME/YOUR_REPO")
 
         self.setWindowTitle("Modern Archiver")
@@ -50,7 +52,6 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.apply_styles()
 
-    # ---------- UI ----------
     def setup_ui(self):
         self.setup_toolbar()
         self.setup_tree()
@@ -71,6 +72,13 @@ class MainWindow(QMainWindow):
         extract_action.triggered.connect(self.extract_archive)
         toolbar.addAction(extract_action)
 
+        # Управление паролями
+        passwords_action = QAction("🔑 Passwords", self)
+        passwords_action.triggered.connect(self.manage_passwords)
+        toolbar.addAction(passwords_action)
+
+        toolbar.addSeparator()
+
         # Обновление
         update_action = QAction("🔄 Check Updates", self)
         update_action.triggered.connect(self.check_updates)
@@ -84,145 +92,81 @@ class MainWindow(QMainWindow):
     def setup_tree(self):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Name", "Size"])
-
         self.tree.setColumnWidth(0, 500)
         self.tree.setAlternatingRowColors(True)
-
         self.setCentralWidget(self.tree)
 
     def setup_statusbar(self):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
-        self.set_status("Ready")
+        self.status.showMessage("Ready")
 
-    # ---------- STYLE ----------
     def apply_styles(self):
         self.setStyleSheet("""
-        QMainWindow {
-            background-color: #f5f5f7;
-        }
-
-        QToolBar {
-            background: white;
-            border-bottom: 1px solid #ddd;
-            spacing: 6px;
-            padding: 6px;
-        }
-
-        QTreeWidget {
-            background: white;
-            border: none;
-            font-size: 13px;
-        }
-
-        QStatusBar {
-            background: #fafafa;
-            border-top: 1px solid #ddd;
-        }
+        QMainWindow { background-color: #f5f5f7; }
+        QToolBar { background: white; border-bottom: 1px solid #ddd; spacing: 6px; padding: 6px; }
+        QTreeWidget { background: white; border: none; font-size: 13px; }
+        QStatusBar { background: #fafafa; border-top: 1px solid #ddd; }
         """)
 
-    # ---------- STATUS ----------
-    def set_status(self, text):
-        self.status.showMessage(text)
-
-    # ---------- OPEN ----------
     def open_archive(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open ZIP",
-            "",
-            "ZIP (*.zip)"
-        )
+        formats = self.archive_service.get_supported_formats()
+        filter_str = "Archives (" + " ".join([f"*{f}" for f in formats]) + ");;All files (*.*)"
 
-        if not path:
-            return
+        path, _ = QFileDialog.getOpenFileName(self, "Open Archive", "", filter_str)
+        if not path: return
 
         self.archive_path = path
         self.setWindowTitle(f"Modern Archiver - {os.path.basename(path)}")
-        self.tree.clear()
 
-        def task():
-            return self.archive_service.list_files(path)
-
-        worker = Worker(task)
+        worker = Worker(lambda: self.archive_service.list_files(path))
         worker.signals.finished.connect(self.on_archive_loaded)
-        worker.signals.error.connect(self.show_error)
+        worker.signals.error.connect(lambda m: QMessageBox.critical(self, "Error", m))
 
         self.threadpool.start(worker)
-        self.set_status("Loading archive...")
+        self.status.showMessage("Loading...")
 
     def on_archive_loaded(self, files):
         self.tree.clear()
-
         for f in files:
-            size = f"{f['size'] / 1024:.1f} KB"
-            item = QTreeWidgetItem([f["name"], size])
-            self.tree.addTopLevelItem(item)
+            size_txt = f"{f['size'] / 1024:.1f} KB" if f['size'] > 0 else ("Folder" if f['is_dir'] else "0 B")
+            self.tree.addTopLevelItem(QTreeWidgetItem([f["name"], size_txt]))
+        self.status.showMessage(f"Loaded {len(files)} items")
 
-        self.set_status("Archive loaded")
-
-    # ---------- EXTRACT ----------
     def extract_archive(self):
         if not self.archive_path:
             QMessageBox.warning(self, "Warning", "Open archive first")
             return
 
-        dest = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if not dest:
-            return
+        dest = QFileDialog.getExistingDirectory(self, "Select Destination")
+        if not dest: return
 
-        def task():
-            return self.archive_service.extract_all(
-                self.archive_path,
-                dest,
-                lambda: PasswordDialog.ask(self)
-            )
-
-        worker = Worker(task)
+        worker = Worker(lambda: self.archive_service.extract_all(
+            self.archive_path, dest, lambda: PasswordDialog.ask(self)
+        ))
         worker.signals.finished.connect(self.on_extract_done)
-        worker.signals.error.connect(self.show_error)
-
         self.threadpool.start(worker)
-        self.set_status("Extracting...")
+        self.status.showMessage("Extracting...")
 
     def on_extract_done(self, success):
-        if success:
-            QMessageBox.information(self, "Done", "Extraction completed")
-            self.set_status("Done")
-        else:
-            QMessageBox.warning(self, "Error", "Extraction failed")
-            self.set_status("Error")
+        msg = "Extraction completed" if success else "Extraction failed"
+        QMessageBox.information(self, "Result", msg)
+        self.status.showMessage("Ready")
 
-    # ---------- UPDATE ----------
+    def manage_passwords(self):
+        # ИСПРАВЛЕНО: теперь self.password_service гарантированно передан
+        dialog = PasswordManagerDialog(self.password_service, self)
+        dialog.exec()
+
     def check_updates(self):
-        self.set_status("Checking updates...")
-
-        def task():
-            return self.update_service.check_update()
-
-        worker = Worker(task)
+        worker = Worker(self.update_service.check_update)
         worker.signals.finished.connect(self.on_update_checked)
-        worker.signals.error.connect(self.show_error)
-
         self.threadpool.start(worker)
 
     def on_update_checked(self, info):
-        self.set_status("Ready")
-
         if not info:
-            QMessageBox.information(self, "Update", "No updates found")
+            QMessageBox.information(self, "Update", "Up to date")
             return
-
-        reply = QMessageBox.question(
-            self,
-            "Update available",
-            f"Version {info['version']} available.\nDownload?"
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Update",
+                                f"New version {info['version']} available. Download?") == QMessageBox.StandardButton.Yes:
             webbrowser.open(info["download"])
-
-    # ---------- ERROR ----------
-    def show_error(self, msg):
-        QMessageBox.critical(self, "Error", msg)
-        self.set_status("Error")

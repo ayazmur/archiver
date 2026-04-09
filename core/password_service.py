@@ -1,42 +1,34 @@
-import time
-
+import keyring
+import json
 
 class PasswordService:
-    def __init__(self, repository):
-        self.repo = repository
-        self._cache = None
-        self._cache_time = 0
-        self._ttl = 5
-
-    def _is_cache_valid(self):
-        return self._cache and (time.time() - self._cache_time < self._ttl)
+    def __init__(self):
+        self.service_name = "ModernArchiver"
+        self.username = "user_saved_passwords"
 
     def get_all(self):
-        if self._is_cache_valid():
-            return self._cache.copy()
-
-        data = self.repo.load()
-        passwords = data.get("passwords", [])
-
-        self._cache = passwords
-        self._cache_time = time.time()
-
-        return passwords.copy()
+        try:
+            data = keyring.get_password(self.service_name, self.username)
+            return json.loads(data) if data else []
+        except Exception:
+            return []
 
     def add(self, password: str):
         if not password:
             return
-
         passwords = self.get_all()
         if password not in passwords:
             passwords.append(password)
-            self.repo.save({"passwords": passwords})
+            self._save(passwords)
 
     def delete(self, password: str):
         passwords = self.get_all()
         if password in passwords:
             passwords.remove(password)
-            self.repo.save({"passwords": passwords})
+            self._save(passwords)
 
     def clear(self):
-        self.repo.save({"passwords": []})
+        self._save([])
+
+    def _save(self, passwords):
+        keyring.set_password(self.service_name, self.username, json.dumps(passwords))
