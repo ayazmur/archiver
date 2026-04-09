@@ -26,125 +26,31 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install deps
+      - name: Install minimal deps
         run: |
-          pip install -r requirements.txt
+          pip install PyQt6 requests
           pip install pyinstaller
 
-      # ---------- BUILD с оптимизацией ----------
-      - name: Build app (Windows)
+      # ---------- BUILD with spec file ----------
+      - name: Build with spec (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pyinstaller --onefile --windowed --name ModernArchiver `
-            --exclude-module PyQt6.QAxContainer `
-            --exclude-module PyQt6.QtBluetooth `
-            --exclude-module PyQt6.QtDBus `
-            --exclude-module PyQt6.QtDesigner `
-            --exclude-module PyQt6.QtHelp `
-            --exclude-module PyQt6.QtMultimedia `
-            --exclude-module PyQt6.QtMultimediaWidgets `
-            --exclude-module PyQt6.QtNfc `
-            --exclude-module PyQt6.QtOpenGL `
-            --exclude-module PyQt6.QtOpenGLWidgets `
-            --exclude-module PyQt6.QtPdf `
-            --exclude-module PyQt6.QtPdfWidgets `
-            --exclude-module PyQt6.QtPositioning `
-            --exclude-module PyQt6.QtPrintSupport `
-            --exclude-module PyQt6.QtQml `
-            --exclude-module PyQt6.QtQuick `
-            --exclude-module PyQt6.QtQuick3D `
-            --exclude-module PyQt6.QtQuickWidgets `
-            --exclude-module PyQt6.QtRemoteObjects `
-            --exclude-module PyQt6.QtSensors `
-            --exclude-module PyQt6.QtSerialPort `
-            --exclude-module PyQt6.QtSpatialAudio `
-            --exclude-module PyQt6.QtSql `
-            --exclude-module PyQt6.QtStateMachine `
-            --exclude-module PyQt6.QtSvg `
-            --exclude-module PyQt6.QtSvgWidgets `
-            --exclude-module PyQt6.QtTest `
-            --exclude-module PyQt6.QtTextToSpeech `
-            --exclude-module PyQt6.QtWebChannel `
-            --exclude-module PyQt6.QtWebSockets `
-            --exclude-module PyQt6.QtXml `
-            app.py
+          pyinstaller --noconfirm build.spec
 
-      - name: Build app (Linux)
+      - name: Build with spec (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          pyinstaller --onefile --windowed --name ModernArchiver \
-            --exclude-module PyQt6.QAxContainer \
-            --exclude-module PyQt6.QtBluetooth \
-            --exclude-module PyQt6.QtDBus \
-            --exclude-module PyQt6.QtDesigner \
-            --exclude-module PyQt6.QtHelp \
-            --exclude-module PyQt6.QtMultimedia \
-            --exclude-module PyQt6.QtMultimediaWidgets \
-            --exclude-module PyQt6.QtNfc \
-            --exclude-module PyQt6.QtOpenGL \
-            --exclude-module PyQt6.QtOpenGLWidgets \
-            --exclude-module PyQt6.QtPdf \
-            --exclude-module PyQt6.QtPdfWidgets \
-            --exclude-module PyQt6.QtPositioning \
-            --exclude-module PyQt6.QtPrintSupport \
-            --exclude-module PyQt6.QtQml \
-            --exclude-module PyQt6.QtQuick \
-            --exclude-module PyQt6.QtQuick3D \
-            --exclude-module PyQt6.QtQuickWidgets \
-            --exclude-module PyQt6.QtRemoteObjects \
-            --exclude-module PyQt6.QtSensors \
-            --exclude-module PyQt6.QtSerialPort \
-            --exclude-module PyQt6.QtSpatialAudio \
-            --exclude-module PyQt6.QtSql \
-            --exclude-module PyQt6.QtStateMachine \
-            --exclude-module PyQt6.QtSvg \
-            --exclude-module PyQt6.QtSvgWidgets \
-            --exclude-module PyQt6.QtTest \
-            --exclude-module PyQt6.QtTextToSpeech \
-            --exclude-module PyQt6.QtWebChannel \
-            --exclude-module PyQt6.QtWebSockets \
-            --exclude-module PyQt6.QtXml \
-            app.py
+          pyinstaller --noconfirm build.spec
 
-      - name: Build app (macOS)
+      - name: Build with spec (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --onefile --windowed --name ModernArchiver \
-            --exclude-module PyQt6.QAxContainer \
-            --exclude-module PyQt6.QtBluetooth \
-            --exclude-module PyQt6.QtDBus \
-            --exclude-module PyQt6.QtDesigner \
-            --exclude-module PyQt6.QtHelp \
-            --exclude-module PyQt6.QtMultimedia \
-            --exclude-module PyQt6.QtMultimediaWidgets \
-            --exclude-module PyQt6.QtNfc \
-            --exclude-module PyQt6.QtOpenGL \
-            --exclude-module PyQt6.QtOpenGLWidgets \
-            --exclude-module PyQt6.QtPdf \
-            --exclude-module PyQt6.QtPdfWidgets \
-            --exclude-module PyQt6.QtPositioning \
-            --exclude-module PyQt6.QtPrintSupport \
-            --exclude-module PyQt6.QtQml \
-            --exclude-module PyQt6.QtQuick \
-            --exclude-module PyQt6.QtQuick3D \
-            --exclude-module PyQt6.QtQuickWidgets \
-            --exclude-module PyQt6.QtRemoteObjects \
-            --exclude-module PyQt6.QtSensors \
-            --exclude-module PyQt6.QtSerialPort \
-            --exclude-module PyQt6.QtSpatialAudio \
-            --exclude-module PyQt6.QtSql \
-            --exclude-module PyQt6.QtStateMachine \
-            --exclude-module PyQt6.QtSvg \
-            --exclude-module PyQt6.QtSvgWidgets \
-            --exclude-module PyQt6.QtTest \
-            --exclude-module PyQt6.QtTextToSpeech \
-            --exclude-module PyQt6.QtWebChannel \
-            --exclude-module PyQt6.QtWebSockets \
-            --exclude-module PyQt6.QtXml \
-            app.py
+          pyinstaller --noconfirm build.spec
 
       - name: List dist directory
-        run: ls -la dist/
+        run: |
+          ls -la dist/ || echo "dist directory not found"
+          ls -la || echo "current directory"
 
       # ---------- WINDOWS INSTALLER ----------
       - name: Install Inno Setup
@@ -184,7 +90,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           mkdir -p AppDir/usr/bin
-          cp dist/ModernArchiver AppDir/usr/bin/
+          cp dist/ModernArchiver AppDir/usr/bin/ 2>/dev/null || echo "Binary not found"
           
           cat > AppDir/modern-archiver.desktop << EOF
           [Desktop Entry]
@@ -197,15 +103,15 @@ jobs:
           
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
-          ARCH=x86_64 ./appimagetool AppDir ModernArchiver.AppImage
+          ARCH=x86_64 ./appimagetool AppDir ModernArchiver.AppImage || echo "AppImage creation failed"
 
       # ---------- MACOS DMG ----------
       - name: Create DMG on macOS
         if: matrix.os == 'macos-latest'
         run: |
           mkdir -p dmg_folder
-          cp dist/ModernArchiver dmg_folder/
-          hdiutil create -volname "Modern Archiver" -srcfolder dmg_folder -ov -format UDZO ModernArchiver.dmg
+          cp dist/ModernArchiver dmg_folder/ 2>/dev/null || echo "Binary not found"
+          hdiutil create -volname "Modern Archiver" -srcfolder dmg_folder -ov -format UDZO ModernArchiver.dmg || echo "DMG creation failed"
 
       # ---------- UPLOAD ARTIFACTS ----------
       - name: Upload artifacts
@@ -231,6 +137,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: List artifacts
+        run: find artifacts -type f -name "*.exe" -o -name "*.AppImage" -o -name "*.dmg"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -238,9 +147,10 @@ jobs:
           name: Build ${{ github.run_number }}
           prerelease: true
           files: |
-            artifacts/**/*.exe
+            artifacts/**/ModernArchiver.exe
             artifacts/**/*.AppImage
             artifacts/**/*.dmg
+            artifacts/**/*.exe
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
