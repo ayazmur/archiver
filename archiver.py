@@ -342,9 +342,9 @@ class MainWindow(QMainWindow):
         self.tree.setSortingEnabled(False)
         self.tree.itemDoubleClicked.connect(self._on_item_double_click)
         header = self.tree.header()
-        header.setSectionResizeMode(0, header.Stretch())
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
         for column in (1, 2, 3, 4):
-            header.setSectionResizeMode(column, header.ResizeToContents)
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         layout.addWidget(self.tree, 1)
 
         # ---- Строка состояния ----
